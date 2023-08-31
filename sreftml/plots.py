@@ -96,6 +96,7 @@ def prediction_plot(
     name_covariates: list[str],
     scaler_y: sp.StandardScaler,
     scaler_cov,
+    biomarkers_is_reversed: dict[str, bool] | None = None,
     res: int = 100,
     density: bool = False,
     useOffsetT: bool = True,
@@ -127,6 +128,11 @@ def prediction_plot(
     cm = plt.colormaps["Set1"]
 
     y_data = df[name_biomarkers].values
+    if biomarkers_is_reversed is not None:
+        for k, biomarker in enumerate(name_biomarkers):
+            if biomarkers_is_reversed[biomarker]:
+                y_data[:, k] = -y_data[:, k]
+
     if useOffsetT:
         x_data = df.TIME.values + df.offsetT.values
         cov_dummy = np.array([i for i in itertools.product([0, 1], repeat=n_covariate)])
@@ -136,6 +142,10 @@ def prediction_plot(
         x_model = np.tile(x_model, 2**n_covariate).reshape(-1, 1)
         x_model = np.concatenate((x_model, cov_dummy_scaled), axis=1)
         y_model = scaler_y.inverse_transform(sreft.model_y(x_model))
+        if biomarkers_is_reversed is not None:
+            for k, biomarker in enumerate(name_biomarkers):
+                if biomarkers_is_reversed[biomarker]:
+                    y_model[:, k] = -y_model[:, k]
     else:
         x_data = df.TIME.values
 

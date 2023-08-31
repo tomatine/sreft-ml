@@ -375,3 +375,18 @@ def calculate_offsetT_prediction(
     )
     df_ = df_.assign(offsetT=offsetT, **y_pred)
     return df_
+
+
+def remove_outliers(data):
+    """
+    Removes outliers from data based on interquartile range.
+    """
+    valid_data = data[~np.isnan(data)]  # Exclude NaN values for the calculation
+    if len(valid_data) == 0:  # Check for empty data
+        return np.array([], dtype=bool)
+
+    Q1 = np.percentile(valid_data, 25)
+    Q3 = np.percentile(valid_data, 75)
+    IQR = Q3 - Q1
+    mask = (data >= Q1 - 1.5 * IQR) & (data <= Q3 + 1.5 * IQR)
+    return mask

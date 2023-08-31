@@ -9,7 +9,7 @@ import sklearn.preprocessing as sp
 import tensorflow as tf
 from scipy.stats import gaussian_kde, linregress
 
-from .utilities import clean_duplicate, n2mfrow
+from .utilities import clean_duplicate, n2mfrow, remove_outliers
 
 
 def hp_search_plot(
@@ -97,6 +97,7 @@ def prediction_plot(
     scaler_y: sp.StandardScaler,
     scaler_cov,
     biomarkers_is_reversed: dict[str, bool] | None = None,
+    remove_outlier: bool = False,
     res: int = 100,
     density: bool = False,
     useOffsetT: bool = True,
@@ -113,6 +114,8 @@ def prediction_plot(
         name_covariates (list[str]): The names of the covariates.
         scaler_y: The scaler for the y values.
         scaler_cov: The scaler for the covariate values.
+        remove_outlier: Whether to remove outliers or not.
+        biomarkers_is_reversed (dict[str, bool] | None, optional): Whether the biomarkers are reversed or not. Defaults to None.
         res (int, optional): Resolution of the plot. Defaults to 100.
         density (bool, optional): Whether to plot density or not. Defaults to False.
         useOffsetT (bool, optional): Whether to use offsetT or not. Defaults to True.
@@ -128,10 +131,6 @@ def prediction_plot(
     cm = plt.colormaps["Set1"]
 
     y_data = df[name_biomarkers].values
-    if biomarkers_is_reversed is not None:
-        for k, biomarker in enumerate(name_biomarkers):
-            if biomarkers_is_reversed[biomarker]:
-                y_data[:, k] = -y_data[:, k]
 
     if useOffsetT:
         x_data = df.TIME.values + df.offsetT.values
@@ -148,6 +147,15 @@ def prediction_plot(
                     y_model[:, k] = -y_model[:, k]
     else:
         x_data = df.TIME.values
+
+    for k, biomarker in enumerate(name_biomarkers):
+        if remove_outlier:
+            outlier_mask = remove_outliers(y_data[:, k])
+            y_data = y_data[outlier_mask]
+            x_data = x_data[outlier_mask]
+        if biomarkers_is_reversed is not None:
+            if biomarkers_is_reversed[biomarker]:
+                y_data[:, k] = -y_data[:, k]
 
     fig, axs = plt.subplots(
         n_row,

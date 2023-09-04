@@ -97,7 +97,7 @@ def prediction_plot(
     scaler_y: sp.StandardScaler,
     scaler_cov,
     biomarkers_is_reversed: dict[str, bool] | None = None,
-    remove_outlier: bool = False,
+    biomarkers_to_remove_outlier: list[str] | None = None,
     res: int = 100,
     density: bool = False,
     useOffsetT: bool = True,
@@ -114,7 +114,7 @@ def prediction_plot(
         name_covariates (list[str]): The names of the covariates.
         scaler_y: The scaler for the y values.
         scaler_cov: The scaler for the covariate values.
-        remove_outlier: Whether to remove outliers or not.
+        biomarkers_to_remove_outlier (list[str] | None, optional): The names of the biomarkers to remove outliers. Defaults to None.
         biomarkers_is_reversed (dict[str, bool] | None, optional): Whether the biomarkers are reversed or not. Defaults to None.
         res (int, optional): Resolution of the plot. Defaults to 100.
         density (bool, optional): Whether to plot density or not. Defaults to False.
@@ -129,6 +129,8 @@ def prediction_plot(
     n_covariate = len(name_covariates)
     n_row, n_col = n2mfrow(n_biomarker, ncol_max)
     cm = plt.colormaps["Set1"]
+    if biomarkers_to_remove_outlier is None:
+        biomarkers_to_remove_outlier = []
 
     y_data = df[name_biomarkers].values
 
@@ -148,15 +150,6 @@ def prediction_plot(
     else:
         x_data = df.TIME.values
 
-    for k, biomarker in enumerate(name_biomarkers):
-        if remove_outlier:
-            outlier_mask = remove_outliers(y_data[:, k])
-            y_data = y_data[outlier_mask]
-            x_data = x_data[outlier_mask]
-        if biomarkers_is_reversed is not None:
-            if biomarkers_is_reversed[biomarker]:
-                y_data[:, k] = -y_data[:, k]
-
     fig, axs = plt.subplots(
         n_row,
         n_col,
@@ -170,9 +163,20 @@ def prediction_plot(
             ax.axis("off")
             continue
 
+        x_data_tmp = x_data
+        y_data_tmp = y_data
+
+        if name_biomarkers[k] in biomarkers_to_remove_outlier:
+            outlier_mask = remove_outliers(y_data_tmp[:, k])
+            x_data_tmp = x_data_tmp[outlier_mask]
+            y_data_tmp = y_data_tmp[outlier_mask]
+        if biomarkers_is_reversed is not None:
+            if biomarkers_is_reversed[name_biomarkers[k]]:
+                y_data_tmp[:, k] = -y_data_tmp[:, k]
+
         if density:
-            x_ = x_data[~np.isnan(y_data[:, k])]
-            y_ = y_data[~np.isnan(y_data[:, k]), k]
+            x_ = x_data_tmp[~np.isnan(y_data_tmp[:, k])]
+            y_ = y_data_tmp[~np.isnan(y_data_tmp[:, k]), k]
             if np.var(x_) == 0:
                 z = gaussian_kde(y_)(y_)
             else:
@@ -181,7 +185,9 @@ def prediction_plot(
             idx = z.argsort()
             ax.scatter(x_[idx], y_[idx], c=z[idx], s=2, label="_nolegend_")
         else:
-            ax.scatter(x_data, y_data[:, k], c="silver", s=2, label="_nolegend_")
+            ax.scatter(
+                x_data_tmp, y_data_tmp[:, k], c="silver", s=2, label="_nolegend_"
+            )
 
         if useOffsetT:
             for i in range(2**n_covariate):

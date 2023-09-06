@@ -346,6 +346,70 @@ def compute_permutation_importance(
     return np.array(mean_pi), np.array(std_pi)
 
 
+def compute_permutation_importance_offsetT(
+    random_seed: int,
+    sreft: tf.keras.Model,
+    x_test: np.ndarray,
+    cov_test: np.ndarray,
+    m_test: np.ndarray,
+    y_test: np.ndarray,
+    n_sample: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute permutation importance of the model.
+
+    Args:
+        random_seed (int): The seed for the random number generator.
+        sreft (tf.keras.Model): The model for which to calculate permutation importance.
+        x_test (np.ndarray): The x test data.
+        cov_test (np.ndarray): The covariates test data.
+        m_test (np.ndarray): The m test data.
+        y_test (np.ndarray): The y test data.
+        n_sample (int): The number of samples.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: The mean and standard deviation of the permutation importance.
+    """
+    rng = np.random.default_rng(random_seed)
+    offestt_pred = sreft.model_1(
+        np.concatenate((m_test, cov_test[:, 0].reshape(-1, 1)), axis=-1)
+    ).numpy()
+    # neglls_orig = np_compute_negative_log_likelihood(y_test, y_pred, sreft.lnvar_y)
+
+    mean_pi = []
+    std_pi = []
+    n_pi = m_test.shape[1] + cov_test.shape[1]
+
+    for i in range(n_pi):
+        pis = []
+        for j in range(n_sample):
+            if i < m_test.shape[1]:
+                m_test_rand = np.copy(m_test)
+                rng.shuffle(m_test_rand[:, i])
+                y_pred_rand = sreft.model_1(
+                    np.concatenate(
+                        (m_test_rand, cov_test[:, 0].reshape(-1, 1)), axis=-1
+                    )
+                ).numpy()
+            else:
+                cov_test_rand = np.copy(cov_test)
+                rng.shuffle(cov_test_rand[:, i - m_test.shape[1]])
+                y_pred_rand = sreft.model_1(
+                    np.concatenate(
+                        (m_test, cov_test_rand[:, 0].reshape(-1, 1)), axis=-1
+                    )
+                ).numpy()
+
+            nglls_diff = (offestt_pred - y_pred_rand) ** 2
+            temp_pi = np.nanmean(nglls_diff)
+            pis.append(temp_pi)
+
+        mean_pi.append(np.mean(pis))
+        std_pi.append(np.std(pis))
+
+    return np.array(mean_pi), np.array(std_pi)
+
+
 def calculate_offsetT_prediction(
     sreft: tf.keras.Model,
     df: pd.DataFrame,
@@ -368,7 +432,9 @@ def calculate_offsetT_prediction(
     """
     df_ = df.copy()
     x_scaled, cov_scaled, m_scaled, y_scaled = scaled_features
-    offsetT = sreft.model_1(np.concatenate((m_scaled, cov_scaled), axis=-1))
+    offsetT = sreft.model_1(
+        np.concatenate((m_scaled, cov_scaled[:, 0].reshape((-1, 1))), axis=-1)
+    )
     y_pred = pd.DataFrame(
         scaler_y.inverse_transform(sreft(scaled_features)),
         columns=[f"{biomarker}_pred" for biomarker in name_biomarkers],

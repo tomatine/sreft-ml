@@ -93,6 +93,7 @@ def prediction_plot(
     sreft: tf.keras.Model,
     df: pd.DataFrame,
     name_biomarkers: list[str],
+    name_biomarkers_display: list[str],
     name_covariates: list[str],
     scaler_y: sp.StandardScaler,
     scaler_cov,
@@ -103,6 +104,9 @@ def prediction_plot(
     useOffsetT: bool = True,
     ncol_max: int = 4,
     save_file_path: str | None = None,
+    title_size: int = 20,
+    label_size: int = 15,
+    tick_size: int = 15,
 ) -> plt.Figure:
     """
     Plot the predictions of the SReFT model.
@@ -197,11 +201,21 @@ def prediction_plot(
                     c=cm(i),
                     lw=4,
                 )
-            ax.set_xlabel("Disease Time (year)")
+                ax.minorticks_on()
+                ax.tick_params(axis="x", labelsize=tick_size)
+                ax.tick_params(axis="y", labelsize=tick_size)
+                ax.tick_params(axis="x", which="minor", length=7)
+                ax.tick_params(axis="y", which="minor", length=7)
+                # ax.set_xlabel("Disease Time (year)", fontsize=label_size, fontweight="bold")
+                ax.set_xlabel("")
         else:
-            ax.set_xlabel("Observation Period (year)")
+            ax.set_xlabel(
+                "Observation Period (year)", fontsize=label_size, fontweight="bold"
+            )
 
-        ax.set_title(name_biomarkers[k], fontsize=15)
+        ax.set_title(name_biomarkers_display[k], fontsize=title_size, fontweight="bold")
+
+    fig.supxlabel("疾患時間（年）", fontsize=label_size, fontweight="heavy")
 
     if n_covariate > 0:
         legend_labels = [

@@ -96,7 +96,7 @@ def prediction_plot(
     name_biomarkers_display: list[str],
     name_covariates: list[str],
     scaler_y: sp.StandardScaler,
-    scaler_cov,
+    scaler_cov: sp.StandardScaler,
     biomarkers_is_reversed: dict[str, bool] | None = None,
     biomarkers_to_remove_outlier: list[str] | None = None,
     res: int = 100,
@@ -116,8 +116,8 @@ def prediction_plot(
         df (pd.DataFrame): DataFrame with the data.
         name_biomarkers (list[str]): The names of the biomarkers.
         name_covariates (list[str]): The names of the covariates.
-        scaler_y: The scaler for the y values.
-        scaler_cov: The scaler for the covariate values.
+        scaler_y (sp.StandardScaler): The scaler for the y values.
+        scaler_cov (sp.StandardScaler): The scaler for the covariate values.
         biomarkers_to_remove_outlier (list[str] | None, optional): The names of the biomarkers to remove outliers. Defaults to None.
         biomarkers_is_reversed (dict[str, bool] | None, optional): Whether the biomarkers are reversed or not. Defaults to None.
         res (int, optional): Resolution of the plot. Defaults to 100.

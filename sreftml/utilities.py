@@ -10,6 +10,11 @@ import tensorflow as tf
 from sklearn.linear_model import LinearRegression
 
 
+class NullModel:
+    def __init__(self, Intercept, TIME):
+        self.params = [Intercept, TIME]
+
+
 def n2mfrow(n_plots: int, ncol_max: int = 4) -> tuple[int, int]:
     """
     Determines the number of rows and columns required to plot a given number of subplots.

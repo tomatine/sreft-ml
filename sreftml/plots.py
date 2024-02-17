@@ -302,520 +302,55 @@ def single_panel_scatter_plot(
     return g
 
 
-def multi_panel_scatter_plot(
-    df: pd.DataFrame,
-    x_col: str,
-    y_col: str,
-    hue: list[str] | str,
-    duplicate_key: list[str] | str | None = None,
-    ncol_max: int = 4,
-    density: bool = False,
-    identity: bool = False,
-    save_file_path: str | None = None,
-) -> sns.axisgrid.FacetGrid:
+def plot_jointplot_with_regression(
+    df, x_col, y_col, duplicate_key=None, save_file_path=None
+):
     """
-    Draw scatter plots with multiple panels based on stratification factors.
+    Create a joint plot with scatter plot, regression line, and regression line label using cleaned data.
 
-    Args:
+    Parameters:
         df (pd.DataFrame): Input DataFrame.
-        x_col (str): X-axis column in df.
-        y_col (str): Y-axis column in df.
-        hue (list[str] | str): Columns to stratify the plot.
-        duplicate_key (list[str] | str | None, optional): Specify the column name(s) from which duplicates are to be removed. Defaults to None.
-        ncol_max (int, optional): Maximum number of columns. Defaults to 4.
-        density (bool, optional): Whether to plot density. Defaults to False.
-        identity (bool, optional): Whether to plot identity line. Defaults to False.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
+        x_col (str): Column name for x-axis.
+        y_col (str): Column name for y-axis.
+        duplicate_key (list[str] | str | None): Key columns to check for duplicates.
+        save_file_path (str | None): Path to save the plot. If None, plot is not saved.
 
     Returns:
-        sns.axisgrid.FacetGrid: FacetGrid object with the scatter plot.
+        sns.JointGrid: JointGrid object with the joint plot.
     """
-    if type(hue) is str:
-        hue = [hue]
+    # Clean the DataFrame
+    df_cleaned = clean_duplicate(df, [x_col, y_col], duplicate_key)
 
-    df_ = clean_duplicate(df, [x_col, y_col] + hue, duplicate_key)
-    hue_ = ", ".join(hue)
-    if len(hue) > 1:
-        df_[hue_] = df[hue].apply(lambda x: ", ".join(x.astype(str)), axis=1)
-    unique_hue = np.sort(df_[hue_].unique())
+    # Ensure there's enough data left after cleaning
+    if df_cleaned.empty or len(df_cleaned) < 2:
+        warnings.warn("Insufficient data after cleaning.")
+        return
 
-    col_wrap = n2mfrow(len(df_[hue_].unique()), ncol_max=ncol_max)[1]
-    g = sns.lmplot(
-        data=df_,
+    # Create the joint plot
+    g = sns.jointplot(
         x=x_col,
         y=y_col,
-        col=hue_,
-        col_wrap=col_wrap,
-        col_order=unique_hue,
-        scatter=not density,
-        scatter_kws={"alpha": 0.5, "s": 20, "edgecolor": "none"},
-        line_kws={"color": "red", "label": "lines"},
+        data=df_cleaned,
+        kind="reg",
+        height=8,
+        line_kws={"color": "red"},
+        marginal_kws={"kde": False},
     )
-    g.figure.set_dpi(300)
 
-    for idx, s in enumerate(unique_hue):
-        df_hue = df_.loc[df_[hue_] == s]
-        label_line = get_regression_line_label(df_hue[x_col], df_hue[y_col])
+    # Calculate regression line label
+    label = get_regression_line_label(df_cleaned[x_col], df_cleaned[y_col])
 
-        if density:
-            xy = df_hue[[x_col, y_col]].values.T
-            z = gaussian_kde(xy)(xy)
-            x_ = xy.T[:, :1]
-            y_ = xy.T[:, 1:]
-            g.axes[idx].scatter(x_, y_, c=z, s=20, edgecolor="none", cmap="viridis")
-            g.axes[idx].legend([label_line])
-        else:
-            g.axes[idx].legend(["_nolegend_", label_line])
+    # Add regression line label to the plot
+    g.ax_joint.annotate(label, xy=(0.1, 0.9), xycoords="axes fraction", fontsize=20)
 
-        if identity:
-            if df[y_col].max() < df[x_col].min() or df[x_col].max() < df[y_col].min():
-                warnings.warn(
-                    f"The data range of {x_col} and {y_col} is not covered, although idenntity=True. Skip drawing of identity line."
-                )
-            else:
-                min_ = df[[x_col, y_col]].min().max()
-                max_ = df[[x_col, y_col]].max().min()
-                g.axes[idx].plot([min_, max_], [min_, max_], "k--")
+    # Set font size for each element
+    g.ax_joint.set_xlabel(x_col, fontsize=20)
+    g.ax_joint.set_ylabel(y_col, fontsize=20)
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
 
-    if save_file_path is not None:
-        plt.savefig(save_file_path, transparent=True, dpi=300)
+    # Save the plot if a file path is provided
+    if save_file_path:
+        g.savefig(save_file_path, transparent=True, dpi=300)
 
     return g
-
-
-def learning_history_plot(
-    df_loss: pd.DataFrame, save_file_path: str | None = None
-) -> plt.Figure:
-    """
-    Plot learning history.
-
-    Args:
-        df_loss (pd.DataFrame): Data frame converted from tf.keras.callbacks.History.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        plt.Figure: The plotted figure.
-    """
-    fig = plt.figure(tight_layout=True, dpi=300)
-    plt.plot(df_loss["loss"], label="training")
-    plt.plot(df_loss["val_loss"], label="validation")
-    plt.xlabel("Epoch")
-    plt.ylabel("loss")
-    plt.legend()
-
-    if save_file_path is not None:
-        plt.savefig(save_file_path, transparent=True)
-
-    return fig
-
-
-def histogram_plot(
-    df: pd.DataFrame,
-    col_name: list[str] | str,
-    hue: str | None = None,
-    sharex: bool = True,
-    sharey: bool = True,
-    ncol_max: int = 4,
-    save_file_path: str | None = None,
-) -> sns.axisgrid.FacetGrid:
-    """
-    Plot a stratified histogram by column.
-
-    Args:
-        df (pd.DataFrame): Input DataFrame.
-        col_name (list[str] | str): List of column names in df.
-        hue (str | None, optional): Column to stratify the plot. Defaults to None.
-        share{x, y} (bool | "col" | "row", optional): This is passed directly to seaborn.FacetGrid.
-        ncol_max (int, optional): Maximum number of columns. Defaults to 4.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        sns.axisgrid.FacetGrid: FacetGrid object with the distribution plot.
-    """
-    if type(col_name) is str:
-        col_name = [col_name]
-    col_wrap = n2mfrow(len(col_name), ncol_max=ncol_max)[1]
-
-    if hue is None:
-        df_melt = pd.melt(df[col_name])
-    else:
-        df_melt = pd.melt(df[col_name + [hue]], hue)
-    g = sns.FacetGrid(
-        df_melt,
-        col="variable",
-        hue=hue,
-        col_wrap=col_wrap,
-        sharex=sharex,
-        sharey=sharey,
-        height=3.5,
-    )
-    g.map(plt.hist, "value", alpha=0.4)
-    g.add_legend()
-    g.set_titles("{col_name}")
-
-    if save_file_path:
-        g.savefig(save_file_path, transparent=True)
-
-    return g
-
-
-def scatter_matrix_plot(
-    df: pd.DataFrame, save_file_path: str | None = None
-) -> sns.axisgrid.PairGrid:
-    """
-    Plot correlation matrix.
-
-    Args:
-        df (pd.DataFrame): Input DataFrame.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        sns.axisgrid.PairGrid: PairGrid object with the correlation plot.
-    """
-
-    def corrfunc(x, y, **kwds):
-        ax = plt.gca()
-        ax.tick_params(bottom=False, top=False, left=False, right=False)
-        sns.despine(ax=ax, bottom=True, top=True, left=True, right=True)
-        r = x.corr(y, method="pearson")
-        norm = plt.Normalize(-1, 1)
-        facecolor = plt.get_cmap("seismic")(norm(r))
-        ax.set_facecolor(facecolor)
-        ax.set_alpha(0)
-        lightness = (max(facecolor[:3]) + min(facecolor[:3])) / 2
-        ax.annotate(
-            f"{r:.2f}",
-            xy=(0.5, 0.5),
-            xycoords=ax.transAxes,
-            color="white" if lightness < 0.7 else "black",
-            size=26,
-            ha="center",
-            va="center",
-        )
-
-    g = sns.PairGrid(df)
-    g.map_diag(sns.histplot, kde=False)
-    g.map_lower(plt.scatter, s=2)
-    g.map_upper(corrfunc)
-    g.figure.tight_layout()
-
-    if save_file_path:
-        g.savefig(save_file_path)
-
-    return g
-
-
-def correlation_plot_strata(
-    df: pd.DataFrame, name_biomarkers: list[str], strata: str = "status"
-) -> None:
-    """
-    Generate a heatmap and pairplot of biomarkers for each strata.
-
-    Args:
-        df (pd.DataFrame): Dataframe with biomarkers and strata information.
-        name_biomarkers (list[str]): List of biomarker names to plot.
-        strata (str, optional): The name of the strata column. Default is 'status'.
-
-    Returns:
-        None
-    """
-    for i in range(2):
-        plt.figure(figsize=(10, 10))
-        sns.heatmap(
-            df[df[strata] == i][name_biomarkers].corr(),
-            cmap="coolwarm",
-            vmin=-1,
-            vmax=1,
-            annot=True,
-            fmt="1.2f",
-        )
-
-        plt.figure(figsize=(10, 10))
-        sns.pairplot(df[df[strata] == i][name_biomarkers].reset_index(drop=True))
-
-    sns.pairplot(df[name_biomarkers + [strata]], hue=strata, diag_kind="hist")
-    return None
-
-
-def residual_plot(
-    df: pd.DataFrame,
-    name_biomarkers: list[str],
-    ncol_max: int = 4,
-    save_file_path: str | None = None,
-) -> plt.Figure:
-    """
-    Generate a plot of residuals.
-
-    Args:
-        df (pd.DataFrame): Input Dataframe. This must contain offsetT, actual value of biomarkers and prediction value of biomarkers.
-        name_biomarkers (List[str]): List of biomarker names.
-        ncol_max (int, optional): Maximum number of columns. Default is 4.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        Figure: The created matplotlib figure.
-    """
-    if not "offsetT" in df.columns:
-        warnings.warn(
-            "offsetT does not exist in df. df must contain offsetT. Skip drawing residual plot."
-        )
-        return None
-    if not all([f"{biomarker}_pred" in df.columns for biomarker in name_biomarkers]):
-        warnings.warn(
-            "Some of the prediction values are missing in df. df must contain prediction values of biomarkers. Skip drawing residual plot."
-        )
-        return None
-    n_biomarker = len(name_biomarkers)
-    n_row, n_col = n2mfrow(n_biomarker, ncol_max)
-    x_data = df.TIME.values + df.offsetT.values
-
-    y_res = (
-        df[[f"{biomarker}_pred" for biomarker in name_biomarkers]].values
-        - df[name_biomarkers].values
-    )
-
-    fig, axs = plt.subplots(
-        n_row, n_col, figsize=(n_col * 3, n_row * 3), tight_layout=True, dpi=300
-    )
-    for k, ax in enumerate(axs.flat):
-        if k >= n_biomarker:
-            ax.axis("off")
-            continue
-
-        ax.scatter(x_data, y_res[:, k], s=2)
-        ax.axhline(0, c="black", ls="--")
-        ax.set_title(name_biomarkers[k], fontsize=15)
-        ax.set_xlabel("Disease Time (year)")
-        ax.set_ylabel("y_pred - y_obs")
-
-    if save_file_path is not None:
-        fig.savefig(save_file_path, transparent=True)
-
-    return fig
-
-
-def permutation_importance_plot(
-    mean_pi: np.ndarray,
-    std_pi: np.ndarray,
-    feature_label: list[str],
-    y_axis_log: bool = False,
-    save_file_path: str | None = None,
-) -> plt.Figure:
-    """
-    Generate a permutation importance plot.
-
-    Args:
-        mean_pi (np.ndarray): Array of mean permutation importance values.
-        std_pi (np.ndarray): Array of standard deviation permutation importance values.
-        feature_label (list[str]): List of feature names for which PI was measured.
-        y_axis_log (bool, optional): Whether to use log scale for y-axis. Default is False.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        plt.Figure: The plotted figure.
-    """
-    rank = np.argsort(mean_pi)
-    fig = plt.figure(figsize=(len(rank) / 4, 10), dpi=300, tight_layout=True)
-    plt.bar([feature_label[i] for i in rank], mean_pi[rank], yerr=std_pi[rank])
-    plt.xticks(rotation=45, ha="right")
-    if y_axis_log:
-        plt.ylabel("Permutation Importance (log scale)")
-        plt.yscale("log")
-    else:
-        plt.ylabel("Permutation Importance")
-
-    if save_file_path is not None:
-        plt.savefig(save_file_path, transparent=True)
-
-    return fig
-
-
-def var_y_plot(
-    sreft: tf.keras.Model,
-    name_biomarkers: list[str],
-    save_file_path: str | None = None,
-) -> plt.Figure:
-    """
-    Generate a plot of var_y.
-
-    Args:
-        sreft (tf.keras.Model): Object responsible for transforming the data.
-        name_biomarkers (list[str]): List of biomarker names.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        plt.Figure: The plotted figure.
-    """
-    rank = np.argsort(np.exp(sreft.lnvar_y))
-    fig = plt.figure(dpi=300, tight_layout=True)
-    plt.barh([name_biomarkers[i] for i in rank], np.exp(sreft.lnvar_y)[rank])
-    plt.gca().invert_yaxis()
-    plt.xlabel("var_y")
-
-    if save_file_path:
-        plt.savefig(save_file_path, transparent=True)
-
-    return fig
-
-
-def model_sigmoid(
-    t: float | np.ndarray, cov: float | np.ndarray, params: pd.Series
-) -> np.ndarray:
-    """
-    Compute a sigmoid model prediction.
-
-    Args:
-        t (float | np.ndarray]): Time or array of time values.
-        cov (float | np.ndarray]): Covariate or array of covariate values.
-        params (np.Series): Parameters for the model.
-
-    Returns:
-        np.ndarray: The model predictions.
-    """
-    covval = np.exp(params.filter(like="Covariate")).values.reshape(1, -1) ** cov
-    covval = np.prod(covval, axis=1)
-    li = params["a"] + params["b"] * covval * t
-    output = 1 / (1 + np.exp(-li))
-    return output
-
-
-def prediction_sim_plot(
-    df: pd.DataFrame,
-    sreft: tf.keras.Model,
-    params_true: pd.DataFrame,
-    name_biomarkers: list[str],
-    name_covariates: list[str],
-    scaler_cov: sp.StandardScaler,
-    scaler_y: sp.StandardScaler,
-    res: int = 100,
-    density: bool = False,
-    ncol_max: int = 4,
-    save_file_path: str | None = None,
-) -> plt.Figure:
-    """
-    Generate a prediction simulation plot.
-
-    Args:
-        df (pd.DataFrame): Dataframe with biomarkers and other information.
-        sreft (tf.keras.Model): Object responsible for transforming the data.
-        params_true (pd.DataFrame): Dataframe with true parameters for the model.
-        name_biomarkers (list[str]): List of biomarker names.
-        name_covariates (list[str]): List of covariate names.
-        scaler_cov: Scaler for the covariate values.
-        scaler_y: Scaler for the y values.
-        res (int, optional): Resolution for the plot. Default is 100.
-        density (bool, optional): Whether to use density or not. Default is False.
-        ncol_max (int, optional): Maximum number of columns for the plot. Default is 4.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        Figure: The created matplotlib figure.
-    """
-    n_biomarker = len(name_biomarkers)
-    n_covariate = len(name_covariates)
-    n_row, n_col = n2mfrow(n_biomarker, ncol_max)
-    cm = plt.colormaps["Set1"]
-
-    y_data = df[name_biomarkers].values
-    x_data = df.TIME.values + df.offsetT.values
-
-    cov_dummy = np.array(list(itertools.product([0, 1], repeat=n_covariate)))
-    cov_dummy = np.repeat(cov_dummy, res, axis=0)
-    cov_dummy_scaled = scaler_cov.transform(cov_dummy)
-    x_model = np.linspace(x_data.min(), x_data.max(), res)
-    input2 = np.tile(x_model, 2**n_covariate).reshape(-1, 1)
-    input2 = np.concatenate((input2, cov_dummy_scaled), axis=1)
-    y_model = scaler_y.inverse_transform(sreft.model_y(input2))
-
-    name_covariates_true = [i for i in params_true.columns if "Covariate" in i]
-    n_covariate_true = len(name_covariates_true)
-    cov_dummy_true = np.array(list(itertools.product([0, 1], repeat=n_covariate_true)))
-    cov_dummy_true = np.repeat(cov_dummy_true, res, axis=0)
-
-    fig, axs = plt.subplots(
-        n_row,
-        n_col,
-        figsize=(n_col * 3, n_row * 3),
-        tight_layout=True,
-        dpi=300,
-        sharex="row",
-    )
-    for k, ax in enumerate(axs.flat):
-        if k >= n_biomarker:
-            ax.axis("off")
-            continue
-
-        if density:
-            x_ = x_data[~np.isnan(y_data[:, k])]
-            y_ = y_data[~np.isnan(y_data[:, k]), k]
-            if np.var(x_) == 0:
-                z = gaussian_kde(y_)(y_)
-            else:
-                xy = np.vstack([x_, y_])
-                z = gaussian_kde(xy)(xy)
-            idx = z.argsort()
-            ax.scatter(x_[idx], y_[idx], c=z[idx], s=2, label="_nolegend_")
-        else:
-            ax.scatter(x_data, y_data[:, k], c="silver", s=2, label="_nolegend_")
-
-        pred_line = []
-        for i in range(2**n_covariate):
-            pred_line.extend(
-                ax.plot(
-                    x_model,
-                    y_model[res * i : (res * i + res), k],
-                    c=cm(i),
-                    lw=3,
-                )
-            )
-
-        true_line = []
-        for i in range(2**n_covariate_true):
-            y_true = model_sigmoid(
-                x_model,
-                cov_dummy_true[res * i : (res * i + res)],
-                params_true.loc[k],
-            )
-            true_line.extend(
-                ax.plot(
-                    x_model,
-                    y_true,
-                    c=cm(i),
-                    lw=3,
-                    ls="dashed",
-                )
-            )
-
-        ax.set_xlabel("Disease Time (year)")
-        ax.set_title(name_biomarkers[k], fontsize=15)
-
-    if n_covariate > 0:
-        legend_labels = [
-            ", ".join(format(i, f"0{n_covariate}b")) for i in range(2**n_covariate)
-        ]
-        fig.legend(
-            handles=pred_line,
-            loc="center",
-            framealpha=0,
-            bbox_to_anchor=(1.1, 0.7),
-            title="Pred\n" + ", ".join(name_covariates),
-            labels=legend_labels,
-        )
-
-        legend_labels_true = [
-            ", ".join(format(i, f"0{n_covariate_true}b"))
-            for i in range(2**n_covariate_true)
-        ]
-        fig.legend(
-            handles=true_line,
-            loc="center",
-            framealpha=0,
-            bbox_to_anchor=(1.1, 0.3),
-            title="True\n" + ", ".join(name_covariates_true),
-            labels=legend_labels_true,
-        )
-
-    if save_file_path:
-        fig.savefig(save_file_path, transparent=True, bbox_inches="tight")
-
-    return fig

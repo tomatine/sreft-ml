@@ -5,13 +5,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import shap
 import sklearn.preprocessing as sp
 import tensorflow as tf
 from scipy.stats import gaussian_kde, linregress
 
-from .make_demodata import model_sigmoid
-from .utilities import clean_duplicate, n2mfrow
+from .utilities import clean_duplicate, n2mfrow, remove_outliers
 
 
 def hp_search_plot(
@@ -95,14 +93,19 @@ def prediction_plot(
     sreft: tf.keras.Model,
     df: pd.DataFrame,
     name_biomarkers: list[str],
+    name_biomarkers_display: list[str],
     name_covariates: list[str],
     scaler_y: sp.StandardScaler,
     scaler_cov: sp.StandardScaler,
+    biomarkers_to_remove_outlier: list[str] | None = None,
     res: int = 100,
     density: bool = False,
     useOffsetT: bool = True,
     ncol_max: int = 4,
     save_file_path: str | None = None,
+    title_size: int = 20,
+    label_size: int = 15,
+    tick_size: int = 15,
 ) -> plt.Figure:
     """
     Plot the predictions of the SReFT model.
@@ -114,6 +117,7 @@ def prediction_plot(
         name_covariates (list[str]): The names of the covariates.
         scaler_y (sp.StandardScaler): The scaler for the y values.
         scaler_cov (sp.StandardScaler): The scaler for the covariate values.
+        biomarkers_to_remove_outlier (list[str] | None, optional): The names of the biomarkers to remove outliers. Defaults to None.
         res (int, optional): Resolution of the plot. Defaults to 100.
         density (bool, optional): Whether to plot density or not. Defaults to False.
         useOffsetT (bool, optional): Whether to use offsetT or not. Defaults to True.
@@ -127,8 +131,11 @@ def prediction_plot(
     n_covariate = len(name_covariates)
     n_row, n_col = n2mfrow(n_biomarker, ncol_max)
     cm = plt.colormaps["Set1"]
+    if biomarkers_to_remove_outlier is None:
+        biomarkers_to_remove_outlier = []
 
     y_data = df[name_biomarkers].values
+
     if useOffsetT:
         x_data = df.TIME.values + df.offsetT.values
         cov_dummy = np.array([i for i in itertools.product([0, 1], repeat=n_covariate)])
@@ -154,9 +161,17 @@ def prediction_plot(
             ax.axis("off")
             continue
 
+        x_data_tmp = x_data
+        y_data_tmp = y_data
+
+        if name_biomarkers[k] in biomarkers_to_remove_outlier:
+            outlier_mask = remove_outliers(y_data_tmp[:, k])
+            x_data_tmp = x_data_tmp[outlier_mask]
+            y_data_tmp = y_data_tmp[outlier_mask]
+
         if density:
-            x_ = x_data[~np.isnan(y_data[:, k])]
-            y_ = y_data[~np.isnan(y_data[:, k]), k]
+            x_ = x_data_tmp[~np.isnan(y_data_tmp[:, k])]
+            y_ = y_data_tmp[~np.isnan(y_data_tmp[:, k]), k]
             if np.var(x_) == 0:
                 z = gaussian_kde(y_)(y_)
             else:
@@ -165,7 +180,9 @@ def prediction_plot(
             idx = z.argsort()
             ax.scatter(x_[idx], y_[idx], c=z[idx], s=2, label="_nolegend_")
         else:
-            ax.scatter(x_data, y_data[:, k], c="silver", s=2, label="_nolegend_")
+            ax.scatter(
+                x_data_tmp, y_data_tmp[:, k], c="silver", s=2, label="_nolegend_"
+            )
 
         if useOffsetT:
             for i in range(2**n_covariate):
@@ -175,11 +192,21 @@ def prediction_plot(
                     c=cm(i),
                     lw=4,
                 )
-            ax.set_xlabel("Disease Time (year)")
+                ax.minorticks_on()
+                ax.tick_params(axis="x", labelsize=tick_size)
+                ax.tick_params(axis="y", labelsize=tick_size)
+                ax.tick_params(axis="x", which="minor", length=7)
+                ax.tick_params(axis="y", which="minor", length=7)
+                # ax.set_xlabel("Disease Time (year)", fontsize=label_size, fontweight="bold")
+                ax.set_xlabel("")
         else:
-            ax.set_xlabel("Observation Period (year)")
+            ax.set_xlabel(
+                "Observation Period (year)", fontsize=label_size, fontweight="bold"
+            )
 
-        ax.set_title(name_biomarkers[k], fontsize=15)
+        ax.set_title(name_biomarkers_display[k], fontsize=title_size, fontweight="bold")
+
+    fig.supxlabel("疾患時間（年）", fontsize=label_size, fontweight="heavy")
 
     if n_covariate > 0:
         legend_labels = [
@@ -632,69 +659,6 @@ def permutation_importance_plot(
     return fig
 
 
-def merged_permutation_importance_plot(
-    mean_pi: np.ndarray,
-    name_biomarkers: list[str],
-    name_covariates: list[str],
-    y_axis_log: bool = False,
-    save_file_path: str | None = None,
-) -> plt.Figure:
-    """
-    Generate a permutation importance plot.
-
-    Args:
-        mean_pi (np.ndarray): Array of mean permutation importance values.
-        name_biomarkers (List[str]): List of biomarker names.
-        name_covariates (list[str]): The names of the covariates.
-        y_axis_log (bool, optional): Whether to use log scale for y-axis. Default is False.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        plt.Figure: The plotted figure.
-    """
-    bar = pd.DataFrame(
-        {
-            "labels": [i + j for j in ["_slope", "intercept"] for i in name_biomarkers]
-            + name_covariates,
-            "values": mean_pi.round(3),
-        }
-    )
-
-    result_data = {"labels": [], "mean_pi": []}
-
-    for i in name_biomarkers:
-        slope_label = i + "_slope"
-        intercept_label = i + "_intercept"
-        slope_value = bar.loc[bar["labels"] == slope_label, "mean_pi"].values[0]
-        intercept_value = bar.loc[bar["labels"] == intercept_label, "mean_pi"].values[0]
-        total_value = slope_value + intercept_value
-        result_data["labels"].append(i)
-        result_data["mean_pi"].append(total_value)
-
-    for i in name_covariates:
-        cov_value = bar.loc[bar["labels"] == i, "mean_pi"].values[0]
-        result_data["labels"].append(i)
-        result_data["mean_pi"].append(cov_value)
-
-    result_data = pd.DataFrame(result_data)
-
-    mean_pi = result_data.mean_pi.values
-    rank = np.argsort(mean_pi)
-    fig = plt.figure(figsize=(len(rank) / 4, 10), dpi=300, tight_layout=True)
-    plt.bar([result_data.labels.values[i] for i in rank], mean_pi[rank])
-    plt.xticks(rotation=45, ha="right")
-    if y_axis_log:
-        plt.ylabel("Permutation Importance (log scale)")
-        plt.yscale("log")
-    else:
-        plt.ylabel("Permutation Importance")
-
-    if save_file_path is not None:
-        plt.savefig(save_file_path, transparent=True)
-
-    return fig
-
-
 def var_y_plot(
     sreft: tf.keras.Model,
     name_biomarkers: list[str],
@@ -721,6 +685,27 @@ def var_y_plot(
         plt.savefig(save_file_path, transparent=True)
 
     return fig
+
+
+def model_sigmoid(
+    t: float | np.ndarray, cov: float | np.ndarray, params: pd.Series
+) -> np.ndarray:
+    """
+    Compute a sigmoid model prediction.
+
+    Args:
+        t (float | np.ndarray]): Time or array of time values.
+        cov (float | np.ndarray]): Covariate or array of covariate values.
+        params (np.Series): Parameters for the model.
+
+    Returns:
+        np.ndarray: The model predictions.
+    """
+    covval = np.exp(params.filter(like="Covariate")).values.reshape(1, -1) ** cov
+    covval = np.prod(covval, axis=1)
+    li = params["a"] + params["b"] * covval * t
+    output = 1 / (1 + np.exp(-li))
+    return output
 
 
 def prediction_sim_plot(
@@ -861,283 +846,5 @@ def prediction_sim_plot(
 
     if save_file_path:
         fig.savefig(save_file_path, transparent=True, bbox_inches="tight")
-
-    return fig
-
-
-def surv_analysis_plot(
-    fit_model: dict,
-    ci_show: bool = True,
-    only_best: bool = True,
-    title: str | None = None,
-    xlabel: str = "Disease Time (year)",
-    save_dir_path: str | None = None,
-) -> tuple[plt.Figure, plt.Figure, plt.Figure]:
-    """
-    Generate survival analysis plot.
-
-    Args:
-        fit_model (dict): A dictionary of survival analysis objects.
-        ci_show (bool, optional): Whether to show confidence intervals. Defaults to True.
-        only_best (bool, optional): Whether to plot only the best model. Defaults to True.
-        title (str | None, optional): Title for each plot. If None, the title from fit_model is used.
-        xlabel (str, optional): X-axis label for each plot. Defaults to "Disease Time (year)".
-        save_dir_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        tuple[plt.Figure, plt.Figure, plt.Figure]: Plot objects for the survival function, cumulative hazard function, and hazard function.
-    """
-    if title is None:
-        title = fit_model["title"]
-
-    fit_model_parametric = {
-        key: value
-        for key, value in fit_model.items()
-        if key not in ["title", "kmf", "naf"]
-    }
-    if only_best:
-        aics = [i.AIC_ for i in fit_model_parametric.values()]
-        best_model = list(fit_model_parametric.keys())[aics.index(min(aics))]
-        fit_model_parametric = {best_model: fit_model_parametric[best_model]}
-
-    surv_plot = plt.figure(figsize=(5, 5), dpi=300)
-    fit_model["kmf"].plot_survival_function(ci_show=ci_show, lw=2)
-    [
-        k.plot_survival_function(ci_show=ci_show, lw=2)
-        for k in fit_model_parametric.values()
-    ]
-    plt.xlabel(xlabel)
-    plt.ylabel("Survival Function")
-    plt.title(title)
-    if save_dir_path:
-        plt.savefig(save_dir_path + "surv_func.png", transparent=True)
-
-    cumhaz_plot = plt.figure(figsize=(5, 5), dpi=300)
-    fit_model["naf"].plot_cumulative_hazard(ci_show=ci_show, lw=2)
-    [
-        k.plot_cumulative_hazard(ci_show=ci_show, lw=2)
-        for k in fit_model_parametric.values()
-    ]
-    plt.xlabel(xlabel)
-    plt.ylabel("Cumlative Hazard Function")
-    plt.title(title)
-    if save_dir_path:
-        plt.savefig(save_dir_path + "cumhaz_func.png", transparent=True)
-
-    haz_plot = plt.figure(figsize=(5, 5), dpi=300)
-    fit_model["naf"].plot_hazard(bandwidth=2, ci_show=ci_show, lw=2)
-    [k.plot_hazard(ci_show=ci_show, lw=2) for k in fit_model_parametric.values()]
-    plt.xlabel(xlabel)
-    plt.ylabel("Hazard Function")
-    plt.title(title)
-    if save_dir_path:
-        plt.savefig(save_dir_path + "haz_func.png", transparent=True)
-
-    return surv_plot, cumhaz_plot, haz_plot
-
-
-def r_squared_plot(
-    df: pd.DataFrame,
-    name_biomarkers: list[str],
-    isSort: bool = True,
-    cutoff: float = 0.1,
-    save_file_path: str | None = None,
-) -> plt.Figure:
-    """
-    Generate a horizontal bar plot displaying the R-squared values of biomarkers.
-
-    Args:
-        df (pd.DataFrame): DataFrame containing the biomarker data.
-        name_biomarkers (list[str]): List of column names representing the biomarkers.
-        isSort (bool, optional): If True, sort biomarkers by R-squared values. Default is True.
-        cutoff (float, optional): Cutoff value for highlighting specific R-squared values. Biomarkers with R-squared values greater than or equal to cutoff will be highlighted. Default is 0.1.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        fig (plt.Figure): Matplotlib figure object representing the generated plot.
-    """
-    res = df[name_biomarkers].values - df.filter(like="_pred", axis=1).values
-    res_var = np.nanvar(res, axis=0)
-    df_var = np.nanvar(df[name_biomarkers].values, axis=0)
-    r_squared = 1 - res_var / df_var
-
-    cm = plt.get_cmap("tab10")
-    fig = plt.figure(dpi=300, tight_layout=True)
-    if cutoff > 0:
-        plt.axvline(x=cutoff, ls="--", c="black")
-        colors = [cm(1) if x >= cutoff else cm(0) for x in r_squared]
-    else:
-        colors = [cm(0) for _ in range(len(r_squared))]
-
-    if isSort:
-        rank = np.argsort(r_squared)
-        plt.barh(
-            [name_biomarkers[i] for i in rank],
-            r_squared[rank],
-            color=[colors[i] for i in rank],
-        )
-    else:
-        plt.barh(name_biomarkers, r_squared, color=colors)
-
-    plt.xlabel("r_squared")
-
-    if save_file_path:
-        plt.savefig(save_file_path, transparent=True)
-
-    return fig
-
-
-def scatter_matrix_plot_extra(
-    df: pd.DataFrame, save_file_path: str | None = None
-) -> sns.axisgrid.PairGrid:
-    """
-    Plot correlation matrix.
-
-    Args:
-        df (pd.DataFrame): Input DataFrame.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        sns.axisgrid.PairGrid: PairGrid object with the correlation plot.
-    """
-
-    def corrfunc(x, y, **kwds):
-        ax = plt.gca()
-        ax.tick_params(bottom=False, top=False, left=False, right=False)
-        sns.despine(ax=ax, bottom=True, top=True, left=True, right=True)
-        r = x.corr(y, method="pearson")
-        norm = plt.Normalize(-1, 1)
-        facecolor = plt.get_cmap("seismic")(norm(r))
-        ax.set_facecolor(facecolor)
-        ax.set_alpha(0)
-        lightness = (max(facecolor[:3]) + min(facecolor[:3])) / 2
-        ax.annotate(
-            f"{r:.2f}",
-            xy=(0.5, 0.5),
-            xycoords=ax.transAxes,
-            color="white" if lightness < 0.7 else "black",
-            size=26,
-            ha="center",
-            va="center",
-        )
-
-    g = sns.PairGrid(df)
-    g.map_diag(sns.histplot, kde=False)
-    g.map_lower(plt.scatter, s=2)
-    g.map_upper(corrfunc)
-    g.figure.tight_layout()
-
-    if save_file_path:
-        g.savefig(save_file_path)
-
-    return g
-
-
-def shap_plots(
-    shap_exp_model_1: shap.Explanation,
-    ncol_max: int = 4,
-    save_dir_path: str | None = None,
-) -> tuple[plt.Figure, plt.Figure, plt.Figure]:
-    """
-    Plot the SHAP values of the model 1.
-
-    Args:
-        shap_exp_model_1 (shap.Explanation): The SHAP explanation for the model 1.
-        ncol_max (int, optional): Maximum number of columns for subplots. Defaults to 4.
-        save_dir_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        tuple[plt.Figure, plt.Figure, plt.Figure]: Plot objects for shap bar, beeswarm and dependence plot.
-    """
-    bar_plot = plt.figure(figsize=(5, 5), dpi=300, tight_layout=True)
-    shap.plots.bar(shap_exp_model_1, show=False)
-    plt.title("model 1")
-    if save_dir_path:
-        plt.savefig(save_dir_path + "shap_bar_model_1.png", transparent=True)
-
-    beeswarm_plot = plt.figure(figsize=(5, 5), dpi=300, tight_layout=True)
-    shap.plots.beeswarm(shap_exp_model_1, show=False)
-    if save_dir_path:
-        plt.savefig(save_dir_path + "shap_beeswarm_model_1.png", transparent=True)
-
-    n_row, n_col = n2mfrow(shap_exp_model_1.shape[1], ncol_max=ncol_max)
-    fig, axs = plt.subplots(
-        n_row,
-        n_col,
-        figsize=(n_col * 4, n_row * 3),
-        tight_layout=True,
-        dpi=300,
-    )
-    for k, ax in enumerate(axs.flat):
-        if k >= shap_exp_model_1.shape[1]:
-            ax.axis("off")
-            continue
-        shap.plots.scatter(
-            shap_exp_model_1[:, k],
-            color=shap_exp_model_1,
-            x_jitter=0.01,
-            ax=ax,
-            show=False,
-        )
-    fig.suptitle("model 1")
-    if save_dir_path:
-        fig.savefig(save_dir_path + "shap_dependence_model_1.png", transparent=True)
-
-    return bar_plot, beeswarm_plot, fig
-
-
-def merged_shap_bar_plot(
-    shap_exp_model_1: shap.Explanation,
-    name_biomarkers: list[str],
-    name_covariates: list[str],
-    save_file_path: str | None = None,
-) -> plt.Figure:
-    """
-    Plot the SHAP values of the model 1.
-
-    Args:
-        shap_exp_model_1 (shap.Explanation): The SHAP explanation for the model 1.
-        name_biomarkers (List[str]): List of biomarker names.
-        name_covariates (list[str]): The names of the covariates.
-        save_file_path (str, optional): The path where the plot will be saved. Default to None.
-
-    Returns:
-        fig (plt.Figure): Matplotlib figure object representing the generated plot.
-    """
-    bar = pd.DataFrame(
-        {
-            "labels": [i + j for j in ["_slope", "intercept"] for i in name_biomarkers]
-            + name_covariates,
-            "shap": np.mean(abs(shap_exp_model_1.values), axis=0).round(3),
-        }
-    )
-
-    result_data = {"labels": [], "shap": []}
-
-    for i in name_biomarkers:
-        slope_label = i + "_slope"
-        intercept_label = i + "_intercept"
-        slope_value = bar.loc[bar["labels"] == slope_label, "shap"].values[0]
-        intercept_value = bar.loc[bar["labels"] == intercept_label, "shap"].values[0]
-        total_value = slope_value + intercept_value
-        result_data["labels"].append(i)
-        result_data["shap"].append(total_value)
-
-    for i in name_covariates:
-        cov_value = bar.loc[bar["labels"] == i, "shap"].values[0]
-        result_data["labels"].append(i)
-        result_data["shap"].append(cov_value)
-
-    result_data = pd.DataFrame(result_data)
-
-    shap_exp = result_data.shap.values
-    rank = np.argsort(shap_exp)
-    fig = plt.figure(figsize=(len(rank) / 4, 10), dpi=300, tight_layout=True)
-    plt.bar([result_data.labels.values[i] for i in rank], shap_exp[rank])
-    plt.xticks(rotation=45, ha="right")
-    plt.ylabel("mean(|SHAP value|)")
-
-    if save_file_path is not None:
-        plt.savefig(save_file_path, transparent=True)
 
     return fig

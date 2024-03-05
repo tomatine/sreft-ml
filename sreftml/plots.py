@@ -164,6 +164,12 @@ def prediction_plot(
         x_data_tmp = x_data
         y_data_tmp = y_data
 
+        if name_biomarkers[k] == "NTproBNP":
+            y_data_tmp = np.e**y_data_tmp
+            y_model_tmp = np.e**y_model
+        else:
+            y_model_tmp = y_model
+
         if name_biomarkers[k] in biomarkers_to_remove_outlier:
             outlier_mask = remove_outliers(y_data_tmp[:, k])
             x_data_tmp = x_data_tmp[outlier_mask]
@@ -188,7 +194,7 @@ def prediction_plot(
             for i in range(2**n_covariate):
                 ax.plot(
                     x_model[res * i : res * (i + 1), 0],
-                    y_model[res * i : res * (i + 1), k],
+                    y_model_tmp[res * i : res * (i + 1), k],
                     c=cm(i),
                     lw=4,
                 )
